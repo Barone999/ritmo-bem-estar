@@ -5,7 +5,7 @@ import { Heart, MessageCircle, Flag, ImagePlus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
-import { uid, useInvalidate, useProfile, useUser } from "@/lib/data";
+import { uid, useInvalidate, useUser } from "@/lib/data";
 
 export const Route = createFileRoute("/_authenticated/comunidade")({
   head: () => ({ meta: [{ title: "Comunidade — Muuvi" }, { name: "description", content: "Relatos e apoio entre corredoras." }] }),
