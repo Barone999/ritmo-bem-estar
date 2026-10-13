@@ -27,11 +27,11 @@ $$;
 REVOKE ALL ON FUNCTION public.set_community_author_name() FROM PUBLIC, anon, authenticated;
 
 CREATE TRIGGER posts_set_author_name
-BEFORE INSERT ON public.posts
+BEFORE INSERT OR UPDATE ON public.posts
 FOR EACH ROW
 EXECUTE FUNCTION public.set_community_author_name();
 
 CREATE TRIGGER post_comments_set_author_name
-BEFORE INSERT ON public.post_comments
+BEFORE INSERT OR UPDATE ON public.post_comments
 FOR EACH ROW
 EXECUTE FUNCTION public.set_community_author_name();
