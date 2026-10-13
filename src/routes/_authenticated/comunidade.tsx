@@ -45,13 +45,11 @@ function timeAgo(s: string) {
 function Comunidade() {
   const { data: posts = [] } = usePosts();
   const { data: user } = useUser();
-  const { data: profile } = useProfile();
   const invalidate = useInvalidate();
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [posting, setPosting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const name = profile?.display_name ?? "Corredora";
 
   async function publish() {
     if (!text.trim()) return;
@@ -64,7 +62,7 @@ function Comunidade() {
       if (error) { setPosting(false); toast.error("Falha ao enviar a imagem."); return; }
       image_path = path;
     }
-    const { error } = await supabase.from("posts").insert({ user_id, author_name: name, content: text.trim(), image_path });
+    const { error } = await supabase.from("posts").insert({ user_id, content: text.trim(), image_path });
     setPosting(false);
     if (error) { toast.error("Não foi possível publicar."); return; }
     setText(""); setFile(null);
@@ -106,7 +104,7 @@ function Comunidade() {
 
       <div className="mt-4 space-y-4">
         {posts.map((p) => (
-          <PostCard key={p.id} post={p} me={user?.id} myName={name} onLike={like} onReport={report} onComment={() => invalidate("posts")} />
+          <PostCard key={p.id} post={p} me={user?.id} onLike={like} onReport={report} onComment={() => invalidate("posts")} />
         ))}
       </div>
     </AppShell>
@@ -115,8 +113,8 @@ function Comunidade() {
 
 type Post = ReturnType<typeof usePosts>["data"] extends (infer T)[] | undefined ? T : never;
 
-function PostCard({ post, me, myName, onLike, onReport, onComment }: {
-  post: Post; me?: string | undefined; myName: string;
+function PostCard({ post, me, onLike, onReport, onComment }: {
+  post: Post; me?: string | undefined;
   onLike: (id: string, liked: boolean) => void; onReport: (id: string) => void; onComment: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -126,7 +124,7 @@ function PostCard({ post, me, myName, onLike, onReport, onComment }: {
   async function send() {
     if (!c.trim()) return;
     const user_id = await uid();
-    await supabase.from("post_comments").insert({ post_id: post.id, user_id, author_name: myName, content: c.trim() });
+    await supabase.from("post_comments").insert({ post_id: post.id, user_id, content: c.trim() });
     setC(""); onComment();
   }
 
