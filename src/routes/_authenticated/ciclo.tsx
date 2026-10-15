@@ -193,6 +193,18 @@ function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string;
   const [hasSaved, setHasSaved] = useState(!!initial);
   const realStart = periodStart ? dateKey : periodStartFor(dateKey, starts.filter((d) => d !== dateKey));
   const canEnd = !!realStart && !periodStart;
+  const nextStart = realStart ? starts.filter((d) => d > realStart).sort()[0] : undefined;
+  const recordedEnd = realStart
+    ? ends.filter((d) => d >= realStart && (!nextStart || d < nextStart)).sort()[0]
+    : undefined;
+  const periodEnd = periodEnded ? dateKey : recordedEnd;
+  // Show flow only for dates covered by an explicitly recorded menstrual period.
+  // Hiding the control does not clear the saved flow value.
+  const isPeriodDay =
+    !!realStart &&
+    dateKey >= realStart &&
+    (!periodEnd || dateKey <= periodEnd) &&
+    (!nextStart || dateKey < nextStart);
 
   async function save() {
     setSaving(true);
@@ -286,11 +298,13 @@ function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string;
           Para registrar o fim da menstruação, primeiro marque o dia em que ela começou.
         </p>
       )}
-      <div>
-        <p className="text-sm font-semibold">Fluxo menstrual</p>
-        <p className="mb-2 text-xs text-foreground/60">Qual foi a intensidade do seu fluxo hoje? Toque de novo para remover.</p>
-        <div className="flex flex-wrap gap-2">{FLOW_LEVELS.map((f) => <button key={f} disabled={!isEditing} onClick={() => setFlow(toggleFlow(flow, f))} className={`${chip(flow === f)} disabled:cursor-default disabled:opacity-80`}>{f}</button>)}</div>
-      </div>
+      {isPeriodDay && (
+        <div>
+          <p className="text-sm font-semibold">Fluxo menstrual</p>
+          <p className="mb-2 text-xs text-foreground/60">Qual foi a intensidade do seu fluxo hoje? Toque de novo para remover.</p>
+          <div className="flex flex-wrap gap-2">{FLOW_LEVELS.map((f) => <button key={f} disabled={!isEditing} onClick={() => setFlow(toggleFlow(flow, f))} className={`${chip(flow === f)} disabled:cursor-default disabled:opacity-80`}>{f}</button>)}</div>
+        </div>
+      )}
       <div>
         <p className="mb-2 text-sm font-semibold">Energia</p>
         <div className="flex flex-wrap gap-2">{ENERGY.map((e) => <button key={e} disabled={!isEditing} onClick={() => setEnergy(e)} className={`${chip(energy === e)} disabled:cursor-default disabled:opacity-80`}>{e}</button>)}</div>
