@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Heart, MessageCircle, Flag, ImagePlus, Send, X } from "lucide-react";
+import { Heart, MessageCircle, Flag, ImagePlus, Send, X, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
+import { moderationDb, type ModeratorRow } from "@/lib/moderation-db";
 import { uid, useInvalidate, useProfile, useUser } from "@/lib/data";
 
 export const Route = createFileRoute("/_authenticated/comunidade")({
@@ -16,7 +17,36 @@ function usePosts() {
   return useQuery({
     queryKey: ["posts"],
     queryFn: async () => {
-      const { data: posts } = await supabase.from("posts").select("*").order("created_at", { ascending: false }).limit(50);
+      // Moderators can read hidden posts for review, so explicitly keep the public feed visible-only.
+      const { data: moderatedPosts, error: moderationFilterError } = await moderationDb
+        .from("posts")
+        .select("*")
+        .eq("moderation_status", "visible")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      let posts = moderatedPosts as Array<{
+        id: string; user_id: string; author_name: string; content: string;
+        created_at: string; image_path: string | null; image_url: string | null;
+      }> | null;
+
+      // Keep the community usable before the reviewed migration is deployed. Only fall back
+      // when the moderation column itself is missing; other errors must not bypass the filter.
+      if (
+        moderationFilterError &&
+        (moderationFilterError.code === "42703" ||
+          moderationFilterError.message?.includes("moderation_status"))
+      ) {
+        const fallback = await supabase
+          .from("posts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (fallback.error) throw fallback.error;
+        posts = fallback.data;
+      } else if (moderationFilterError) {
+        throw moderationFilterError;
+      }
       const ids = (posts ?? []).map((p) => p.id);
       const [{ data: likes }, { data: comments }] = await Promise.all([
         supabase.from("post_likes").select("*").in("post_id", ids),
@@ -46,6 +76,15 @@ function Comunidade() {
   const { data: posts = [] } = usePosts();
   const { data: user } = useUser();
   const { data: profile } = useProfile();
+  const { data: moderator } = useQuery({
+    queryKey: ["community-moderator", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await moderationDb.from("community_moderators").select("user_id").eq("user_id", user!.id).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as ModeratorRow | null;
+    },
+  });
   const invalidate = useInvalidate();
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -86,7 +125,10 @@ function Comunidade() {
 
   return (
     <AppShell title="Comunidade">
-      <p className="mb-4 text-foreground/70">Um espaço de apoio. Celebre cada passo — o seu e o das outras. 💛</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-foreground/70">Um espaço de apoio. Celebre cada passo — o seu e o das outras. 💛</p>
+        {moderator && <a href="/comunidade/moderacao" className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-sm font-semibold text-bronze"><ShieldCheck className="h-4 w-4" /> Moderação</a>}
+      </div>
       <section className="rounded-3xl bg-surface p-4">
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Conte como foi seu treino..." className="w-full resize-none bg-transparent outline-none placeholder:text-foreground/50" />
         {file && (
