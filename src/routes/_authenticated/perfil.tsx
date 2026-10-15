@@ -37,6 +37,7 @@ function Perfil() {
   const [pregnant, setPregnant] = useState(false);
   const [due, setDue] = useState("");
   const [isEditing, setIsEditing] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (profile) { setName(profile.display_name); setDays(profile.days_per_week); setPregnant(profile.pregnant); setDue(profile.due_date ?? ""); setIsEditing(false); } }, [profile]);
   useEffect(() => { if (cycle) { setCycleLen(cycle.settings.cycle_length); setPeriodLen(cycle.settings.period_length); } }, [cycle]);
@@ -46,15 +47,38 @@ function Perfil() {
 
   async function save() {
     if (pregnant && !due) { toast.error("Informe as semanas ou a data prevista do parto."); return; }
-    const id = await uid();
-    // Cycle data is never touched here, so it is still there when she turns the mode off.
-    await supabase.from("profiles").update({ display_name: name, days_per_week: days, pregnant, due_date: pregnant ? due : null }).eq("id", id);
-    if (cycle && !cycle.isDemo) {
-      await supabase.from("cycle_settings").update({ cycle_length: cycleLen, period_length: periodLen }).eq("user_id", id);
+    setSaving(true);
+    try {
+      const id = await uid();
+      // Cycle data is never touched here, so it is still there when she turns the mode off.
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ display_name: name, days_per_week: days, pregnant, due_date: pregnant ? due : null })
+        .eq("id", id);
+      if (profileError) {
+        toast.error("Não foi possível salvar seu perfil. Tente novamente.");
+        return;
+      }
+
+      if (cycle && !cycle.isDemo) {
+        const { error: cycleError } = await supabase
+          .from("cycle_settings")
+          .update({ cycle_length: cycleLen, period_length: periodLen })
+          .eq("user_id", id);
+        if (cycleError) {
+          toast.error("Perfil salvo, mas não foi possível salvar os ajustes do ciclo. Tente novamente.");
+          return;
+        }
+      }
+
+      invalidate("profile", "cycle");
+      toast.success("Ajustes salvos");
+      setIsEditing(false);
+    } catch {
+      toast.error("Ocorreu um erro ao salvar. Verifique sua conexão e tente novamente.");
+    } finally {
+      setSaving(false);
     }
-    invalidate("profile", "cycle");
-    toast.success("Ajustes salvos");
-    setIsEditing(false);
   }
 
   async function signOut() {
@@ -113,7 +137,7 @@ function Perfil() {
             <label className="block text-sm font-semibold">Dias de menstruação<input type="number" className={input} value={periodLen} onChange={(e) => setPeriodLen(+e.target.value)} disabled={!isEditing} /></label>
           </div>
         )}
-        <button onClick={() => { if (isEditing) void save(); else setIsEditing(true); }} className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3.5 font-bold text-primary-foreground">{isEditing ? "Salvar alterações" : <><Pencil className="h-4 w-4" />Editar perfil</>}</button>
+        <button disabled={saving} onClick={() => { if (isEditing) void save(); else setIsEditing(true); }} className="flex w-full disabled:opacity-60 items-center justify-center gap-2 rounded-full bg-primary py-3.5 font-bold text-primary-foreground">{saving ? "Salvando..." : isEditing ? "Salvar alterações" : <><Pencil className="h-4 w-4" />Editar perfil</>}</button>
       </section>
 
       <Disclaimer className="mt-4" />

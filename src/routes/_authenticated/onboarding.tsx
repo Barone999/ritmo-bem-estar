@@ -51,23 +51,37 @@ function Onboarding() {
 
   async function finish(withCycle: boolean) {
     setSaving(true);
-    const id = await uid();
-    const { error } = await supabase
-      .from("profiles")
-      .update({ goal, days_per_week: days, level, onboarded: true, pregnant: pregnant && !!due, due_date: pregnant && due ? due : null })
-      .eq("id", id);
-    if (!error && withCycle && last) {
-      await supabase.from("cycle_settings").upsert({
-        user_id: id,
-        last_period_start: last,
-        cycle_length: cycleLen,
-        period_length: periodLen,
-      });
+    try {
+      const id = await uid();
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ goal, days_per_week: days, level, onboarded: true, pregnant: pregnant && !!due, due_date: pregnant && due ? due : null })
+        .eq("id", id);
+      if (profileError) {
+        toast.error("Não foi possível salvar seu perfil. Tente novamente.");
+        return;
+      }
+
+      if (withCycle && last) {
+        const { error: cycleError } = await supabase.from("cycle_settings").upsert({
+          user_id: id,
+          last_period_start: last,
+          cycle_length: cycleLen,
+          period_length: periodLen,
+        });
+        if (cycleError) {
+          toast.error("Perfil salvo, mas não foi possível salvar os dados do ciclo. Tente novamente.");
+          return;
+        }
+      }
+
+      invalidate("profile", "cycle");
+      navigate({ to: "/inicio", replace: true });
+    } catch {
+      toast.error("Ocorreu um erro ao salvar. Verifique sua conexão e tente novamente.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    if (error) { toast.error("Não foi possível salvar. Tente novamente."); return; }
-    invalidate("profile", "cycle");
-    navigate({ to: "/inicio", replace: true });
   }
 
   const steps = [
