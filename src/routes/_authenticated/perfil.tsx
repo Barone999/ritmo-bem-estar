@@ -2,7 +2,7 @@ import { PregnancyDisclaimer, PregnancyFields } from "@/components/Pregnancy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Flame, Timer, Trophy } from "lucide-react";
+import { Flame, Pencil, Timer, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Disclaimer } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,8 +36,9 @@ function Perfil() {
   const [periodLen, setPeriodLen] = useState(5);
   const [pregnant, setPregnant] = useState(false);
   const [due, setDue] = useState("");
+  const [isEditing, setIsEditing] = useState(true);
 
-  useEffect(() => { if (profile) { setName(profile.display_name); setDays(profile.days_per_week); setPregnant(profile.pregnant); setDue(profile.due_date ?? ""); } }, [profile]);
+  useEffect(() => { if (profile) { setName(profile.display_name); setDays(profile.days_per_week); setPregnant(profile.pregnant); setDue(profile.due_date ?? ""); setIsEditing(false); } }, [profile]);
   useEffect(() => { if (cycle) { setCycleLen(cycle.settings.cycle_length); setPeriodLen(cycle.settings.period_length); } }, [cycle]);
 
   const minutes = sessions.reduce((a, s) => a + s.minutes, 0);
@@ -53,6 +54,7 @@ function Perfil() {
     }
     invalidate("profile", "cycle");
     toast.success("Ajustes salvos");
+    setIsEditing(false);
   }
 
   async function signOut() {
@@ -82,23 +84,23 @@ function Perfil() {
 
       <section className="mt-6 space-y-3 rounded-3xl bg-surface p-5">
         <h2 className="text-lg font-bold">Ajustes da conta</h2>
-        <label className="block text-sm font-semibold">Nome<input className={input} value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="block text-sm font-semibold">Nome<input className={input} value={name} onChange={(e) => setName(e.target.value)} disabled={!isEditing} /></label>
         <div>
           <p className="text-sm font-semibold">Treinos por semana</p>
           <div className="mt-1 grid grid-cols-7 gap-1.5">
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-              <button key={n} onClick={() => setDays(n)} className={`rounded-xl py-2.5 text-sm font-bold ${days === n ? "bg-primary text-primary-foreground" : "bg-background"}`}>{n}</button>
+              <button key={n} onClick={() => setDays(n)} disabled={!isEditing} className={`rounded-xl py-2.5 text-sm font-bold disabled:cursor-default disabled:opacity-80 ${days === n ? "bg-primary text-primary-foreground" : "bg-background"}`}>{n}</button>
             ))}
           </div>
         </div>
         <div className="rounded-2xl bg-background p-4">
           <label className="flex items-center justify-between gap-3 font-semibold">
             <span>🤰 Estou grávida (Modo Gestante)</span>
-            <input type="checkbox" className="h-6 w-6 accent-primary" checked={pregnant} onChange={(e) => setPregnant(e.target.checked)} />
+            <input type="checkbox" className="h-6 w-6 accent-primary" checked={pregnant} onChange={(e) => setPregnant(e.target.checked)} disabled={!isEditing} />
           </label>
           {pregnant ? (
             <div className="mt-3 space-y-2">
-              <PregnancyFields due={due} onChange={setDue} inputClass="w-full rounded-2xl bg-surface px-4 py-3" />
+              <PregnancyFields due={due} onChange={setDue} inputClass="w-full rounded-2xl bg-surface px-4 py-3" disabled={!isEditing} />
               <PregnancyDisclaimer />
             </div>
           ) : (
@@ -107,11 +109,11 @@ function Perfil() {
         </div>
         {cycle && !cycle.isDemo && !pregnant && (
           <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-semibold">Duração do ciclo<input type="number" className={input} value={cycleLen} onChange={(e) => setCycleLen(+e.target.value)} /></label>
-            <label className="block text-sm font-semibold">Dias de menstruação<input type="number" className={input} value={periodLen} onChange={(e) => setPeriodLen(+e.target.value)} /></label>
+            <label className="block text-sm font-semibold">Duração do ciclo<input type="number" className={input} value={cycleLen} onChange={(e) => setCycleLen(+e.target.value)} disabled={!isEditing} /></label>
+            <label className="block text-sm font-semibold">Dias de menstruação<input type="number" className={input} value={periodLen} onChange={(e) => setPeriodLen(+e.target.value)} disabled={!isEditing} /></label>
           </div>
         )}
-        <button onClick={save} className="w-full rounded-full bg-primary py-3.5 font-bold text-primary-foreground">Salvar</button>
+        <button onClick={() => { if (isEditing) void save(); else setIsEditing(true); }} className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3.5 font-bold text-primary-foreground">{isEditing ? "Salvar alterações" : <><Pencil className="h-4 w-4" />Editar perfil</>}</button>
       </section>
 
       <Disclaimer className="mt-4" />

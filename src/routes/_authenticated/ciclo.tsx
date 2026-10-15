@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Check, Pencil, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
@@ -55,6 +55,12 @@ function CicloView() {
   const today = toDateOnly(new Date());
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(today);
+  const [monthDirection, setMonthDirection] = useState<"left" | "right">("left");
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const changeMonth = (direction: number) => {
+    setMonthDirection(direction > 0 ? "left" : "right");
+    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  };
 
   const workoutDays = useMemo(() => new Set(sessions.map((s) => fmtDate(new Date(s.completed_at)))), [sessions]);
   const logMap = useMemo(() => new Map(logs.map((l) => [l.log_date, l])), [logs]);
@@ -78,13 +84,33 @@ function CicloView() {
           Você está vendo um exemplo. Registre o início da sua menstruação abaixo para personalizar.
         </p>
       )}
-      <section className="rounded-3xl bg-surface p-4">
+      <section
+        data-no-page-swipe
+        className="touch-pan-y rounded-3xl bg-surface p-4"
+        onTouchStart={(e) => {
+          const touch = e.touches[0];
+          if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchEnd={(e) => {
+          const start = touchStart.current;
+          const touch = e.changedTouches[0];
+          touchStart.current = null;
+          if (!start || !touch) return;
+          const deltaX = touch.clientX - start.x;
+          const deltaY = touch.clientY - start.y;
+          if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY) * 1.3) return;
+          const direction = deltaX < 0 ? 1 : -1;
+          changeMonth(direction);
+        }}
+        onTouchCancel={() => { touchStart.current = null; }}
+      >
+        <div key={`${month.getFullYear()}-${month.getMonth()}`} className={`calendar-month-transition calendar-month-transition-${monthDirection}`}>
         <div className="mb-3 flex items-center justify-between">
-          <button aria-label="Mês anterior" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="grid h-9 w-9 place-items-center rounded-full bg-background">
+          <button aria-label="Mês anterior" onClick={() => changeMonth(-1)} className="grid h-9 w-9 place-items-center rounded-full bg-background">
             <ChevronLeft className="h-4 w-4" />
           </button>
           <h2 className="text-lg font-bold">{MONTHS[month.getMonth()]} {month.getFullYear()}</h2>
-          <button aria-label="Próximo mês" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="grid h-9 w-9 place-items-center rounded-full bg-background">
+          <button aria-label="Próximo mês" onClick={() => changeMonth(1)} className="grid h-9 w-9 place-items-center rounded-full bg-background">
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -112,6 +138,7 @@ function CicloView() {
                   </span>
                 )}
                 {logMap.get(key)?.period_start && <span className="absolute top-1 left-1 h-1.5 w-1.5 rounded-full bg-ink" />}
+                {logMap.get(key)?.sexual_activity === true && <Heart aria-label="Relação sexual registrada" className="absolute bottom-1 left-1 h-3 w-3 fill-current text-rose-500" />}
               </button>
             );
           })}
@@ -121,7 +148,9 @@ function CicloView() {
             <span key={p} className="flex items-center gap-2"><span className={`h-3 w-3 rounded-full ${PHASE_BG[p]}`} />{PHASES[p].short}</span>
           ))}
           <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-ink" />Treino feito</span>
+          <span className="flex items-center gap-2"><Heart className="h-3 w-3 fill-current text-rose-500" />Relação sexual</span>
           <span className="flex items-center gap-2 opacity-60">Dias claros = previsão</span>
+        </div>
         </div>
       </section>
 
@@ -149,7 +178,7 @@ function CicloView() {
   );
 }
 
-type Log = { period_start: boolean; period_ended: boolean; flow: string | null; energy: string | null; mood: string | null; symptoms: string[] };
+type Log = { period_start: boolean; period_ended: boolean; flow: string | null; energy: string | null; mood: string | null; symptoms: string[]; sexual_activity: boolean | null };
 
 function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string; initial?: Log | undefined; starts: string[]; ends: string[]; onSaved: () => void }) {
   const [periodStart, setPeriodStart] = useState(initial?.period_start ?? false);
@@ -158,19 +187,37 @@ function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string;
   const [energy, setEnergy] = useState(initial?.energy ?? "");
   const [mood, setMood] = useState(initial?.mood ?? "");
   const [symptoms, setSymptoms] = useState<string[]>(initial?.symptoms ?? []);
+  const [sexualActivity, setSexualActivity] = useState<boolean | null>(initial?.sexual_activity ?? null);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(!initial);
+  const [hasSaved, setHasSaved] = useState(!!initial);
   const realStart = periodStart ? dateKey : periodStartFor(dateKey, starts.filter((d) => d !== dateKey));
   const canEnd = !!realStart && !periodStart;
+  const nextStart = realStart ? starts.filter((d) => d > realStart).sort()[0] : undefined;
+  const recordedEnd = realStart
+    ? ends.filter((d) => d >= realStart && (!nextStart || d < nextStart)).sort()[0]
+    : undefined;
+  const periodEnd = periodEnded ? dateKey : recordedEnd;
+  // Show flow only for dates covered by an explicitly recorded menstrual period.
+  // Hiding the control does not clear the saved flow value.
+  const isPeriodDay =
+    !!realStart &&
+    dateKey >= realStart &&
+    (!periodEnd || dateKey <= periodEnd) &&
+    (!nextStart || dateKey < nextStart);
 
   async function save() {
     setSaving(true);
     const id = await uid();
     const ended = canEnd && periodEnded;
     const { error } = await supabase.from("cycle_logs").upsert(
-      { user_id: id, log_date: dateKey, period_start: periodStart, period_ended: ended, flow, energy: energy || null, mood: mood || null, symptoms },
+      { user_id: id, log_date: dateKey, period_start: periodStart, period_ended: ended, flow, energy: energy || null, mood: mood || null, symptoms, sexual_activity: sexualActivity },
       { onConflict: "user_id,log_date" },
     );
     if (!error && ended && realStart) {
+      await supabase.from("cycle_settings").update({
+        period_length: observedLength(realStart, dateKey),
+      }).eq("user_id", id);
       const clear = endsToClear(realStart, dateKey, starts, ends);
       if (clear.length) await supabase.from("cycle_logs").update({ period_ended: false }).eq("user_id", id).in("log_date", clear);
     }
@@ -201,23 +248,44 @@ function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string;
     setSaving(false);
     if (error) { toast.error("Não foi possível salvar."); return; }
     toast.success("Registro salvo 💛");
+    setHasSaved(true);
+    setIsEditing(false);
     onSaved();
   }
 
   const chip = (on: boolean) => `rounded-full px-4 py-2 text-sm font-semibold ${on ? "bg-ink text-ink-foreground" : "bg-background"}`;
 
   return (
-    <section className="mt-4 space-y-4 rounded-3xl bg-surface p-5">
-      <h3 className="text-lg font-bold">Como você se sentiu?</h3>
+    <section className="mt-4 rounded-3xl bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold">Como você se sentiu?</h3>
+          {!isEditing && <p className="mt-1 text-sm text-foreground/60">Registro salvo para este dia.</p>}
+        </div>
+        {!isEditing && <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-ink-foreground"><Check className="h-4 w-4" /></span>}
+      </div>
+      {!isEditing && canEnd && !periodEnded && (
+        <button
+          type="button"
+          onClick={() => { setPeriodEnded(true); setIsEditing(true); }}
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl bg-sage px-4 py-3 text-left font-semibold text-ink"
+        >
+          <span>Minha menstruação terminou neste dia</span>
+          <span className="shrink-0 rounded-full bg-background px-3 py-1 text-xs font-bold">Registrar</span>
+        </button>
+      )}
+      <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${isEditing ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-4 space-y-4">
       <label className="flex items-center justify-between rounded-2xl bg-blush px-4 py-3">
         <span className="font-semibold">Minha menstruação começou neste dia</span>
-        <input type="checkbox" checked={periodStart} onChange={(e) => setPeriodStart(e.target.checked)} className="h-5 w-5 accent-[var(--primary)]" />
+        <input type="checkbox" disabled={!isEditing} checked={periodStart} onChange={(e) => setPeriodStart(e.target.checked)} className="h-5 w-5 accent-[var(--primary)]" />
       </label>
       {canEnd ? (
         <div>
           <label className="flex items-center justify-between rounded-2xl bg-sage px-4 py-3">
             <span className="font-semibold">Minha menstruação terminou neste dia</span>
-            <input type="checkbox" checked={periodEnded} onChange={(e) => setPeriodEnded(e.target.checked)} className="h-5 w-5 accent-[var(--primary)]" />
+            <input type="checkbox" disabled={!isEditing} checked={periodEnded} onChange={(e) => setPeriodEnded(e.target.checked)} className="h-5 w-5 accent-[var(--primary)]" />
           </label>
           {periodEnded && realStart && (
             <p className="mt-2 text-xs text-foreground/70">
@@ -230,31 +298,51 @@ function LogForm({ dateKey, initial, starts, ends, onSaved }: { dateKey: string;
           Para registrar o fim da menstruação, primeiro marque o dia em que ela começou.
         </p>
       )}
-      <div>
-        <p className="text-sm font-semibold">Fluxo menstrual</p>
-        <p className="mb-2 text-xs text-foreground/60">Qual foi a intensidade do seu fluxo hoje? Toque de novo para remover.</p>
-        <div className="flex flex-wrap gap-2">{FLOW_LEVELS.map((f) => <button key={f} onClick={() => setFlow(toggleFlow(flow, f))} className={chip(flow === f)}>{f}</button>)}</div>
-      </div>
+      {isPeriodDay && (
+        <div>
+          <p className="text-sm font-semibold">Fluxo menstrual</p>
+          <p className="mb-2 text-xs text-foreground/60">Qual foi a intensidade do seu fluxo hoje? Toque de novo para remover.</p>
+          <div className="flex flex-wrap gap-2">{FLOW_LEVELS.map((f) => <button key={f} disabled={!isEditing} onClick={() => setFlow(toggleFlow(flow, f))} className={`${chip(flow === f)} disabled:cursor-default disabled:opacity-80`}>{f}</button>)}</div>
+        </div>
+      )}
       <div>
         <p className="mb-2 text-sm font-semibold">Energia</p>
-        <div className="flex flex-wrap gap-2">{ENERGY.map((e) => <button key={e} onClick={() => setEnergy(e)} className={chip(energy === e)}>{e}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{ENERGY.map((e) => <button key={e} disabled={!isEditing} onClick={() => setEnergy(e)} className={`${chip(energy === e)} disabled:cursor-default disabled:opacity-80`}>{e}</button>)}</div>
       </div>
       <div>
         <p className="mb-2 text-sm font-semibold">Humor</p>
-        <div className="flex gap-2">{MOOD.map((m) => <button key={m} onClick={() => setMood(m)} className={`${chip(mood === m)} text-xl`}>{m}</button>)}</div>
+        <div className="flex gap-2">{MOOD.map((m) => <button key={m} disabled={!isEditing} onClick={() => setMood(m)} className={`${chip(mood === m)} text-xl disabled:cursor-default disabled:opacity-80`}>{m}</button>)}</div>
       </div>
       <div>
         <p className="mb-2 text-sm font-semibold">Sintomas</p>
         <div className="flex flex-wrap gap-2">
           {SYMPTOMS.map((x) => (
-            <button key={x} onClick={() => setSymptoms(symptoms.includes(x) ? symptoms.filter((y) => y !== x) : [...symptoms, x])} className={chip(symptoms.includes(x))}>{x}</button>
+            <button key={x} disabled={!isEditing} onClick={() => setSymptoms(symptoms.includes(x) ? symptoms.filter((y) => y !== x) : [...symptoms, x])} className={`${chip(symptoms.includes(x))} disabled:cursor-default disabled:opacity-80`}>{x}</button>
           ))}
         </div>
       </div>
-      <button disabled={saving} onClick={save} className="w-full rounded-full bg-primary py-3.5 font-bold text-primary-foreground disabled:opacity-60">
-        Salvar registro
+      <div className="rounded-2xl bg-blush/60 p-4">
+        <div className="flex items-center gap-2">
+          <Heart className="h-4 w-4 text-rose-500" />
+          <p className="text-sm font-semibold">Relação sexual</p>
+        </div>
+        <p className="mb-3 mt-1 text-xs text-foreground/60">Registre se houve relação neste dia. Você também pode preencher ou corrigir datas anteriores.</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!isEditing} onClick={() => setSexualActivity(true)} className={`${chip(sexualActivity === true)} disabled:cursor-default disabled:opacity-80`}>Sim</button>
+          <button type="button" disabled={!isEditing} onClick={() => setSexualActivity(false)} className={`${chip(sexualActivity === false)} disabled:cursor-default disabled:opacity-80`}>Não</button>
+          <button type="button" disabled={!isEditing} onClick={() => setSexualActivity(null)} className={`${chip(sexualActivity === null)} disabled:cursor-default disabled:opacity-80`}>Não registrado</button>
+        </div>
+      </div>
+      <button disabled={saving} onClick={() => {
+        if (hasSaved && !isEditing) { setIsEditing(true); return; }
+        void save();
+      }} className={`mt-4 flex w-full items-center justify-center gap-2 rounded-full py-3.5 font-bold transition disabled:opacity-60 ${hasSaved && !isEditing ? "bg-ink text-ink-foreground" : "bg-primary text-primary-foreground"}`}>
+        {saving ? "Salvando..." : hasSaved && !isEditing ? <><Pencil className="h-4 w-4" /> Editar registro</> : <><Check className="h-4 w-4" /> {hasSaved ? "Salvar alterações" : "Salvar registro"}</>}
       </button>
-      <p className="text-center text-xs text-foreground/60">🔒 Seus dados do ciclo são privados e nunca aparecem na comunidade.</p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-center text-xs text-foreground/60">🔒 Seus dados do ciclo são privados e nunca aparecem na comunidade.</p>
     </section>
   );
 }

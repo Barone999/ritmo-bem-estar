@@ -67,23 +67,23 @@ export function PregnancyWorkout({ due }: { due: string }) {
 }
 
 /** Input for gestational weeks or due date; always reports a due date (YYYY-MM-DD) or "". */
-export function PregnancyFields({ due, onChange, inputClass }: { due: string; onChange: (d: string) => void; inputClass: string }) {
+export function PregnancyFields({ due, onChange, inputClass, disabled = false }: { due: string; onChange: (d: string) => void; inputClass: string; disabled?: boolean }) {
   const [mode, setMode] = useState<"weeks" | "date">("weeks");
   const weeks = due ? gestation(due).week - 1 : "";
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2">
         {(["weeks", "date"] as const).map((m) => (
-          <button key={m} type="button" onClick={() => setMode(m)} className={`rounded-2xl py-2.5 text-sm font-bold ${mode === m ? "bg-ink text-ink-foreground" : "bg-background"}`}>
+          <button key={m} type="button" onClick={() => setMode(m)} disabled={disabled} className={`rounded-2xl py-2.5 text-sm font-bold disabled:opacity-70 ${mode === m ? "bg-ink text-ink-foreground" : "bg-background"}`}>
             {m === "weeks" ? "Semanas de gestação" : "Data prevista do parto"}
           </button>
         ))}
       </div>
       {mode === "weeks" ? (
-        <input type="number" min={1} max={41} placeholder="Ex.: 12" className={inputClass} value={weeks}
+        <input type="number" min={1} max={41} placeholder="Ex.: 12" className={inputClass} value={weeks} disabled={disabled}
           onChange={(e) => { const n = +e.target.value; onChange(n >= 1 && n <= 41 ? dueDateFromWeeks(n) : ""); }} />
       ) : (
-        <input type="date" className={inputClass} value={due} onChange={(e) => onChange(e.target.value)} />
+        <input type="date" className={inputClass} value={due} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
       )}
     </div>
   );

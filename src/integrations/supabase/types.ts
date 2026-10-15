@@ -24,6 +24,7 @@ export type Database = {
           mood: string | null
           period_ended: boolean
           period_start: boolean
+          sexual_activity: boolean | null
           symptoms: string[]
           user_id: string
         }
@@ -36,6 +37,7 @@ export type Database = {
           mood?: string | null
           period_ended?: boolean
           period_start?: boolean
+          sexual_activity?: boolean | null
           symptoms?: string[]
           user_id: string
         }
@@ -48,6 +50,7 @@ export type Database = {
           mood?: string | null
           period_ended?: boolean
           period_start?: boolean
+          sexual_activity?: boolean | null
           symptoms?: string[]
           user_id?: string
         }

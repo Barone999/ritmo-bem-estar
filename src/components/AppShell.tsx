@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { Home, Footprints, CalendarHeart, Salad, Users, UserRound, Menu, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Home, Footprints, CalendarHeart, Salad, Users, UserRound } from "lucide-react";
+import { useEffect, type ReactNode } from "react";
 import { useProfile } from "@/lib/data";
 
 const NAV = [
@@ -14,7 +14,7 @@ const NAV = [
 export function AppShell({ title, children }: { title?: string; children: ReactNode }) {
   const { data: profile, isSuccess } = useProfile();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   useEffect(() => {
     if (isSuccess && profile && !profile.onboarded) navigate({ to: "/onboarding", replace: true });
   }, [isSuccess, profile, navigate]);
@@ -34,42 +34,24 @@ export function AppShell({ title, children }: { title?: string; children: ReactN
           <UserRound className="h-5 w-5" />
         </Link>
       </header>
-      <main className="px-5">{children}</main>
-      <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md px-4 pb-4">
+      <main className="px-5">
+        {children}
+      </main>
+      <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md px-4 pb-4">
         <div className="rounded-3xl bg-ink shadow-lg">
-          <div
-            className={`grid transition-all duration-300 ease-out ${
-              menuOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-            }`}
-          >
-            <div className="overflow-hidden">
-              <div className="grid grid-cols-5 px-1 pt-2">
-                {NAV.map(({ to, label, icon: Icon }) => (
-                  <Link
-                    key={to}
-                    to={to}
-                    onClick={() => setMenuOpen(false)}
-                    className={`flex flex-col items-center gap-1 rounded-2xl py-1.5 text-[11px] text-ink-foreground/60 transition-transform duration-300 ease-out ${
-                      menuOpen ? "translate-y-0" : "translate-y-2"
-                    }`}
-                    activeProps={{ className: "!text-primary" }}
-                  >
-                    <Icon className="h-5 w-5" />
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            </div>
+          <div className="grid grid-cols-5 px-1 py-2">
+            {NAV.map(({ to, label, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                className="flex flex-col items-center gap-1 rounded-2xl py-1.5 text-[11px] text-ink-foreground/60 transition-colors"
+                activeProps={{ className: "!text-primary" }}
+              >
+                <Icon className="h-5 w-5" />
+                {label}
+              </Link>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-expanded={menuOpen}
-            className="flex w-full items-center justify-center gap-2 rounded-3xl py-2.5 text-sm font-semibold text-primary transition-colors active:bg-ink-foreground/10"
-          >
-            {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-            Menuu
-          </button>
         </div>
       </nav>
     </div>

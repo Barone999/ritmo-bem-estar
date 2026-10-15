@@ -91,3 +91,53 @@
     color: var(--color-ink);
   }
 }
+
+
+/* Gentle, directional transitions for page and cycle-calendar navigation. */
+.page-transition {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+  will-change: opacity, transform;
+}
+.page-transition-left {
+  animation-name: muuvi-page-enter-left;
+}
+.page-transition-right {
+  animation-name: muuvi-page-enter-right;
+}
+@keyframes muuvi-page-enter-left {
+  from { opacity: 0.72; transform: translate3d(16px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes muuvi-page-enter-right {
+  from { opacity: 0.72; transform: translate3d(-16px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.calendar-month-transition {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+  will-change: opacity, transform;
+}
+.calendar-month-transition-left {
+  animation-name: muuvi-month-enter-left;
+}
+.calendar-month-transition-right {
+  animation-name: muuvi-month-enter-right;
+}
+@keyframes muuvi-month-enter-left {
+  from { opacity: 0.55; transform: translate3d(12px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes muuvi-month-enter-right {
+  from { opacity: 0.55; transform: translate3d(-12px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-transition,
+  .calendar-month-transition {
+    animation-duration: 1ms;
+    will-change: auto;
+  }
+}

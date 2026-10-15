@@ -1,0 +1,1 @@
+ALTER TABLE public.cycle_logs ADD COLUMN IF NOT EXISTS sexual_activity boolean DEFAULT NULL;
