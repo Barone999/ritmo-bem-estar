@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Heart, MessageCircle, Flag, ImagePlus, Send, X } from "lucide-react";
+import { Heart, MessageCircle, Flag, ImagePlus, Send, X, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
+import { moderationDb, type ModeratorRow } from "@/lib/moderation-db";
 import { uid, useInvalidate, useProfile, useUser } from "@/lib/data";
 
 export const Route = createFileRoute("/_authenticated/comunidade")({
@@ -16,7 +17,36 @@ function usePosts() {
   return useQuery({
     queryKey: ["posts"],
     queryFn: async () => {
-      const { data: posts } = await supabase.from("posts").select("*").order("created_at", { ascending: false }).limit(50);
+      // Moderators can read hidden posts for review, so explicitly keep the public feed visible-only.
+      const { data: moderatedPosts, error: moderationFilterError } = await moderationDb
+        .from("posts")
+        .select("*")
+        .eq("moderation_status", "visible")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      let posts = moderatedPosts as Array<{
+        id: string; user_id: string; author_name: string; content: string;
+        created_at: string; image_path: string | null; image_url: string | null;
+      }> | null;
+
+      // Keep the community usable before the reviewed migration is deployed. Only fall back
+      // when the moderation column itself is missing; other errors must not bypass the filter.
+      if (
+        moderationFilterError &&
+        (moderationFilterError.code === "42703" ||
+          moderationFilterError.message?.includes("moderation_status"))
+      ) {
+        const fallback = await supabase
+          .from("posts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (fallback.error) throw fallback.error;
+        posts = fallback.data;
+      } else if (moderationFilterError) {
+        throw moderationFilterError;
+      }
       const ids = (posts ?? []).map((p) => p.id);
       const [{ data: likes }, { data: comments }] = await Promise.all([
         supabase.from("post_likes").select("*").in("post_id", ids),
@@ -46,6 +76,15 @@ function Comunidade() {
   const { data: posts = [] } = usePosts();
   const { data: user } = useUser();
   const { data: profile } = useProfile();
+  const { data: moderator } = useQuery({
+    queryKey: ["community-moderator", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await moderationDb.from("community_moderators").select("user_id").eq("user_id", user!.id).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as ModeratorRow | null;
+    },
+  });
   const invalidate = useInvalidate();
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -72,10 +111,20 @@ function Comunidade() {
   }
 
   async function like(postId: string, liked: boolean) {
-    const user_id = await uid();
-    if (liked) await supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", user_id);
-    else await supabase.from("post_likes").insert({ post_id: postId, user_id });
-    invalidate("posts");
+    try {
+      const user_id = await uid();
+      const result = liked
+        ? await supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", user_id)
+        : await supabase.from("post_likes").insert({ post_id: postId, user_id });
+
+      if (result.error) {
+        toast.error(liked ? "Não foi possível remover a curtida." : "Não foi possível curtir esta publicação.");
+        return;
+      }
+      invalidate("posts");
+    } catch {
+      toast.error("Não foi possível atualizar a curtida. Tente novamente.");
+    }
   }
 
   async function report(postId: string) {
@@ -86,7 +135,10 @@ function Comunidade() {
 
   return (
     <AppShell title="Comunidade">
-      <p className="mb-4 text-foreground/70">Um espaço de apoio. Celebre cada passo — o seu e o das outras. 💛</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-foreground/70">Um espaço de apoio. Celebre cada passo — o seu e o das outras. 💛</p>
+        {moderator && <a href="/comunidade/moderacao" className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-sm font-semibold text-bronze"><ShieldCheck className="h-4 w-4" /> Moderação</a>}
+      </div>
       <section className="rounded-3xl bg-surface p-4">
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Conte como foi seu treino..." className="w-full resize-none bg-transparent outline-none placeholder:text-foreground/50" />
         {file && (
@@ -117,17 +169,37 @@ type Post = ReturnType<typeof usePosts>["data"] extends (infer T)[] | undefined 
 
 function PostCard({ post, me, myName, onLike, onReport, onComment }: {
   post: Post; me?: string | undefined; myName: string;
-  onLike: (id: string, liked: boolean) => void; onReport: (id: string) => void; onComment: () => void;
+  onLike: (id: string, liked: boolean) => void | Promise<void>; onReport: (id: string) => void; onComment: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [c, setC] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
+  const [updatingLike, setUpdatingLike] = useState(false);
   const liked = post.likes.some((l) => l.user_id === me);
 
   async function send() {
-    if (!c.trim()) return;
-    const user_id = await uid();
-    await supabase.from("post_comments").insert({ post_id: post.id, user_id, author_name: myName, content: c.trim() });
-    setC(""); onComment();
+    const content = c.trim();
+    if (!content || sendingComment) return;
+    setSendingComment(true);
+    try {
+      const user_id = await uid();
+      const { error } = await supabase.from("post_comments").insert({
+        post_id: post.id,
+        user_id,
+        author_name: myName,
+        content,
+      });
+      if (error) {
+        toast.error("Não foi possível enviar o comentário. A publicação pode estar indisponível para interação.");
+        return;
+      }
+      setC("");
+      onComment();
+    } catch {
+      toast.error("Não foi possível enviar o comentário. Tente novamente.");
+    } finally {
+      setSendingComment(false);
+    }
   }
 
   return (
@@ -145,7 +217,18 @@ function PostCard({ post, me, myName, onLike, onReport, onComment }: {
       <p className="px-4 pb-3 whitespace-pre-line">{post.content}</p>
       {post.img && <img src={post.img} alt="" className="aspect-[4/3] w-full object-cover" loading="lazy" />}
       <div className="flex gap-5 px-4 py-3 text-sm font-semibold">
-        <button onClick={() => onLike(post.id, liked)} className="flex items-center gap-1.5">
+        <button
+          disabled={updatingLike}
+          onClick={async () => {
+            setUpdatingLike(true);
+            try {
+              await onLike(post.id, liked);
+            } finally {
+              setUpdatingLike(false);
+            }
+          }}
+          className="flex items-center gap-1.5 disabled:opacity-50"
+        >
           <Heart className={`h-5 w-5 ${liked ? "fill-primary text-primary" : ""}`} /> {post.likes.length}
         </button>
         <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5">
@@ -159,7 +242,14 @@ function PostCard({ post, me, myName, onLike, onReport, onComment }: {
           ))}
           <div className="flex gap-2">
             <input value={c} onChange={(e) => setC(e.target.value)} placeholder="Deixe uma palavra de apoio..." className="min-w-0 flex-1 rounded-full bg-background px-4 py-2 text-sm outline-none" />
-            <button aria-label="Enviar" onClick={send} className="grid h-9 w-9 place-items-center rounded-full bg-primary"><Send className="h-4 w-4 text-primary-foreground" /></button>
+            <button
+              aria-label="Enviar"
+              disabled={sendingComment || !c.trim()}
+              onClick={() => void send()}
+              className="grid h-9 w-9 place-items-center rounded-full bg-primary disabled:opacity-50"
+            >
+              <Send className="h-4 w-4 text-primary-foreground" />
+            </button>
           </div>
         </div>
       )}
