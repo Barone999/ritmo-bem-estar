@@ -109,3 +109,53 @@ A auditoria reportou `handle_new_user()` sem trigger em `auth.users`. Tratar o p
 O SQL em `supabase/migrations/20261015190000_add_community_moderation.sql` é uma proposta anterior de revisão e ainda contém a abordagem de GUC customizado. Não aplicar esse arquivo. Antes de qualquer execução, ele deve ser redesenhado para o mecanismo de migração confirmado e para o modelo de autorização aprovado.
 
 Nenhum SQL foi executado no banco ao criar este documento.
+
+
+## Direção técnica após revisão do código atual (ainda sem SQL novo)
+
+A revisão estática da proposta SQL existente e do frontend encontrou pontos que precisam orientar o redesenho:
+
+### Autorização das alterações protegidas sem GUC
+
+A proposta antiga usa `set_config('muuvi.moderation_rpc', ...)` e um trigger que confia nesse marcador. Essa estratégia está rejeitada e o SQL antigo não deve ser aplicado.
+
+A direção preferida para a nova proposta é **usar privilégios mínimos como fronteira principal**, não um marcador de sessão:
+
+1. Revogar os grants de tabela amplos em `posts` e `post_reports` antes de conceder de volta o mínimo.
+2. Conceder ao cliente apenas INSERT nas colunas normais necessárias para criar posts (`user_id`, `author_name`, `content`, `image_url`, `image_path`) e denúncias (`post_id`, `user_id`, `reason`), após confirmar os payloads reais.
+3. Não conceder UPDATE direto nas tabelas/colunas de estado de moderação e revisão. A função `SECURITY DEFINER` validada executa as mudanças privilegiadas como sua proprietária; a autorização deve ser validada dentro da função a cada chamada.
+4. Não criar um trigger que tente distinguir a RPC por um GUC customizado. Se uma trigger adicional for mantida por outra regra de integridade, ela não pode confiar num valor configurável pela sessão como prova de autorização.
+5. Confirmar privilégios efetivos, incluindo grants herdados de `PUBLIC`, grants por coluna e permissões do proprietário da função. A ausência de um grant UPDATE ao papel cliente precisa ser comprovada em teste, não presumida.
+
+Essa direção ainda exige validar o fluxo de publicação e os privilégios reais do ambiente. Não é uma autorização para alterar ou aplicar SQL.
+
+### Funções SECURITY DEFINER
+
+Para `moderate_community_post` e `set_community_moderator`:
+
+- Usar `SECURITY DEFINER` apenas com um proprietário confiável.
+- Definir um `search_path` seguro e qualificar referências a tabelas e funções por schema quando aplicável.
+- Revogar EXECUTE de `PUBLIC` e `anon`, concedendo-o explicitamente a `authenticated` quando a função for destinada a usuários autenticados.
+- Verificar autorização com `auth.uid()` no corpo da função; nunca confiar na UI.
+- Executar atualização de status, revisão das denúncias e gravação de auditoria numa única transação.
+- Para a contagem de denúncias afetadas, capturar `ROW_COUNT` imediatamente após o UPDATE correspondente, antes de executar outra instrução SQL.
+- Definir explicitamente a política para ações repetidas, por exemplo ocultar uma publicação já oculta, e registrar os status anterior/novo de forma consistente.
+- Impedir que o administrador inicial seja removido da equipe de moderação sem um procedimento administrativo alternativo aprovado.
+
+### Pontos encontrados no código frontend atual
+
+- `src/routes/_authenticated/comunidade.tsx` filtra `moderation_status = 'visible'` e possui fallback para schema antigo quando a coluna está ausente. Esse fallback é apenas compatibilidade temporária; não substitui RLS e deve ser removido ou limitado depois que a migração for aplicada e validada.
+- O frontend gera URLs assinadas do bucket `post-images` com TTL de 3600 segundos. Uma URL já emitida pode continuar funcionando até expirar, mesmo que a publicação seja ocultada depois. A política de Storage não revoga retroativamente uma URL assinada. A solução precisa ser explícita sobre esse intervalo de exposição.
+- O frontend insere posts com `user_id`, `author_name`, `content` e `image_path`; insere denúncias com `post_id`, `user_id` e `reason`; comentários e curtidas usam INSERT/DELETE. Grants mínimos devem preservar esses fluxos.
+- O código de comentários e curtidas ignora alguns erros de resposta. Isso não é necessariamente parte da migração SQL, mas os testes devem confirmar os resultados e a interface deve reportar falhas relevantes.
+- O arquivo `src/lib/community-moderation-migration.test.ts` ainda exige a presença do GUC e do `set_config`. Quando a proposta for redesenhada, esse contrato estático deve ser atualizado para rejeitar a abordagem antiga e testar os grants/RPCs esperados. O teste estático não prova a autorização real no PostgreSQL.
+
+### Outras verificações necessárias antes de redigir o SQL final
+
+- Auditar todas as policies existentes de comentários, curtidas, posts, denúncias e Storage; remover/substituir uma policy pelo nome não neutraliza policies permissivas adicionais que se combinam por OR.
+- Rever os grants para `post_comments` e `post_likes`, incluindo DELETE necessário para retirar curtidas e comentários próprios, sem conceder operações adicionais desnecessárias.
+- Confirmar se `image_path` armazena exatamente o nome do objeto do Storage e como são tratadas imagens órfãs ou reutilizadas.
+- Manter a correção do trigger ausente de `auth.users`/criação de `profiles` como uma tarefa separada até ser especificada e testada.
+- Confirmar novamente o mecanismo de migração executado pelo projeto isolado antes de colocar a proposta num diretório executável.
+
+Nenhuma destas observações executa SQL, altera o banco ou autoriza a aplicação da migração.
