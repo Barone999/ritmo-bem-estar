@@ -25,14 +25,26 @@ describe("community moderation migration security contract", () => {
     expect(migration).toMatch(/grant execute on function public\.moderate_community_post\(uuid, text, text\) to authenticated/i);
   });
 
-  it("forces all protected field changes through the audited moderation RPC", () => {
-    expect(migration).toMatch(/current_setting\('muuvi\.moderation_rpc', true\)/i);
-    expect(migration).toMatch(/perform set_config\('muuvi\.moderation_rpc', 'on', true\)/i);
-    expect(migration).toMatch(/perform set_config\('muuvi\.moderation_rpc', 'off', true\)/i);
+  it("does not trust a custom session GUC and restricts protected writes by grants", () => {
+    expect(migration).not.toMatch(/current_setting\s*\(\s*'muuvi\.moderation_rpc'/i);
+    expect(migration).not.toMatch(/set_config\s*\(\s*'muuvi\.moderation_rpc'/i);
+    expect(migration).not.toMatch(/create trigger[^;]*enforce_community_moderation_fields/i);
     expect(migration).toMatch(/revoke insert, update, delete, truncate, references, trigger on public\.community_admins from public, anon, authenticated/i);
     expect(migration).toMatch(/revoke insert, update, delete, truncate, references, trigger on public\.moderation_actions from public, anon, authenticated/i);
     expect(migration).toMatch(/revoke insert, update, delete, truncate, references, trigger on public\.posts from public, anon, authenticated/i);
     expect(migration).toMatch(/revoke insert, update, delete, truncate, references, trigger on public\.post_reports from public, anon, authenticated/i);
+    expect(migration).toMatch(/create or replace function public\.moderate_community_post\([\s\S]*?security definer[\s\S]*?set search_path = public/i);
+    expect(migration).toMatch(/create or replace function public\.set_community_moderator\([\s\S]*?security definer[\s\S]*?set search_path = public/i);
+  });
+
+  it("blocks new comments and likes on hidden or removed posts for every role", () => {
+    const commentPolicy = migration.match(/create policy "own comment ins"[\s\S]*?\);/i)?.[0] ?? "";
+    const likePolicy = migration.match(/create policy "own like ins"[\s\S]*?\);/i)?.[0] ?? "";
+
+    expect(commentPolicy).toMatch(/p\.moderation_status = 'visible'/i);
+    expect(likePolicy).toMatch(/p\.moderation_status = 'visible'/i);
+    expect(commentPolicy).not.toMatch(/community_moderators|community_admins/i);
+    expect(likePolicy).not.toMatch(/community_moderators|community_admins/i);
   });
 
   it("records how many pending reports each action affected", () => {
