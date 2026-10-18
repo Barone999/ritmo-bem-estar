@@ -106,7 +106,7 @@ A auditoria reportou `handle_new_user()` sem trigger em `auth.users`. Tratar o p
 
 ## Estado atual
 
-O SQL em `supabase/migrations/20261015190000_add_community_moderation.sql` é uma proposta anterior de revisão e ainda contém a abordagem de GUC customizado. Não aplicar esse arquivo. Antes de qualquer execução, ele deve ser redesenhado para o mecanismo de migração confirmado e para o modelo de autorização aprovado.
+O SQL em `supabase/migrations/20261015190000_add_community_moderation.sql` continua sendo apenas uma proposta de revisão. Em 18/10/2026, o rascunho foi atualizado no GitHub para remover o GUC customizado e bloquear INSERT de comentários/curtidas quando o post não estiver `visible`. **Não aplicar esse arquivo**: o mecanismo de migração ainda não foi confirmado, as policies/grants reais precisam ser auditadas e o SQL ainda requer revisão integral.
 
 Nenhum SQL foi executado no banco ao criar este documento.
 
@@ -117,7 +117,7 @@ A revisão estática da proposta SQL existente e do frontend encontrou pontos qu
 
 ### Autorização das alterações protegidas sem GUC
 
-A proposta antiga usa `set_config('muuvi.moderation_rpc', ...)` e um trigger que confia nesse marcador. Essa estratégia está rejeitada e o SQL antigo não deve ser aplicado.
+A versão anterior usava `set_config('muuvi.moderation_rpc', ...)` e um trigger que confiava nesse marcador. Essa estratégia está rejeitada. O rascunho atual no GitHub removeu esse mecanismo; a versão continua sem aprovação para execução.
 
 A direção preferida para a nova proposta é **usar privilégios mínimos como fronteira principal**, não um marcador de sessão:
 
@@ -196,3 +196,16 @@ A proposta SQL atual ainda viola essa decisão: as políticas own comment ins e 
 5. Manter todo teste de banco limitado ao Remix isolado, com contas e conteúdo fictícios, sem tabelas de ciclo menstrual.
 
 Nenhum SQL foi executado; esta auditoria foi somente de leitura do repositório.
+
+
+## Atualização da revisão estática (18/10/2026, GitHub)
+
+Sem executar SQL e sem alterar qualquer banco, foram feitas duas alterações na branch `feature/moderacao-comunidade`:
+
+- O rascunho SQL deixou de usar `current_setting/set_config('muuvi.moderation_rpc', ...)` e removeu o trigger que confiava nesse marcador. A proposta passa a depender dos privilégios mínimos concedidos ao cliente e das RPCs `SECURITY DEFINER` validadas. Isso ainda precisa de revisão dos privilégios efetivos e do proprietário das funções.
+- As policies propostas de INSERT para `post_comments` e `post_likes` agora exigem exclusivamente que o post relacionado esteja `visible`, sem exceção para moderador/administrador.
+- O teste estático deixou de exigir o GUC, passou a rejeitar seu uso e verifica que as policies de INSERT não contêm exceções por papel.
+
+**Limitações restantes:** estes testes são verificações textuais, não executam PostgreSQL e não provam RLS. Policies permissivas adicionais podem combinar-se por OR; os resultados da auditoria somente leitura ainda precisam confirmar o estado real. O fluxo de migração do Lovable continua não confirmado. O arquivo em `supabase/migrations/` permanece uma proposta não aprovada: não executar em nenhum banco até concluir a auditoria e confirmar o pipeline.
+
+Nenhum SQL foi executado. Nenhum banco foi alterado.
