@@ -159,3 +159,40 @@ Para `moderate_community_post` e `set_community_moderator`:
 - Confirmar novamente o mecanismo de migração executado pelo projeto isolado antes de colocar a proposta num diretório executável.
 
 Nenhuma destas observações executa SQL, altera o banco ou autoriza a aplicação da migração.
+
+
+## Resultado da auditoria estática complementar (18/10/2026)
+
+### Fluxo de migração: ainda não confirmado
+
+A leitura do código da branch encontrou:
+
+- drizzle.config.ts define PostgreSQL, usa ./drizzle/schema.ts como schema e ./drizzle/migrations como diretório de saída.
+- drizzle/schema.ts está intencionalmente vazio.
+- package.json não define scripts de migração; há scripts de desenvolvimento, build, lint, format e testes, mas nenhum db:migrate, drizzle-kit migrate ou equivalente.
+- A proposta atual está em supabase/migrations/, mas não há evidência suficiente no repositório inspecionado de que esse diretório seja executado pelo fluxo do Lovable Cloud/Remix.
+
+**Conclusão:** não criar ainda uma migração executável nem mover o arquivo existente. É necessário confirmar no ambiente de teste qual mecanismo o Lovable Cloud realmente aplica. A configuração do Drizzle, por si só, não prova que exista uma rotina de aplicação automática.
+
+### Contrato obrigatório para novas interações
+
+A decisão aprovada pelo responsável do projeto é que posts com moderation_status = 'hidden' ou 'removed' rejeitem novas curtidas e comentários de **todos** os papéis, inclusive moderadores e administradores. Ao restaurar para 'visible', novas interações voltam a ser permitidas conforme as regras normais de autoria.
+
+A proposta SQL atual ainda viola essa decisão: as políticas own comment ins e own like ins permitem interação quando o post está oculto/removido se o usuário estiver em community_moderators. Isso precisa ser corrigido na futura proposta e coberto por testes para cada papel. A leitura de conteúdo oculto para revisão continua sendo uma permissão separada da permissão de interagir.
+
+### Limitações e riscos observados no frontend
+
+- O fluxo de publicação envia user_id, author_name, content e image_path; não envia image_url nesse trecho, apesar de a proposta conceder INSERT nessa coluna. Confirmar se a coluna é necessária para algum outro fluxo antes de definir grants mínimos.
+- As funções de curtir e comentar não verificam o campo error retornado pelo Supabase; o comentário é limpo e a lista invalidada mesmo se o INSERT falhar. Corrigir isso no frontend numa alteração revisada, para que rejeições legítimas de RLS sejam mostradas corretamente e não pareçam sucesso.
+- O feed gera URLs assinadas de imagens por 3600 segundos. A autorização de Storage controla novas solicitações, mas não invalida URLs já emitidas. Esse risco precisa ser documentado e aceito ou mitigado antes de declarar que imagens ocultas ficam imediatamente inacessíveis.
+- A busca de posts do feed tem fallback sem filtro de status se a coluna moderation_status não existir. Isso só é aceitável como compatibilidade temporária antes da implantação; depois da implantação validada, deve ser removido ou protegido para não voltar a exibir posts ocultos diante de regressões.
+
+### Próximas verificações (somente leitura)
+
+1. Obter no projeto Remix os resultados da consulta docs/COMMUNITY_MODERATION_AUDIT.sql para políticas RLS, grants de tabela e privilégios por coluna; nenhuma consulta de escrita é necessária.
+2. Confirmar o caminho real de migração do Lovable Cloud antes de escolher o diretório da proposta.
+3. Redesenhar a proposta sem GUC customizado e sem exceção de INSERT para moderadores em posts ocultos/removidos.
+4. Atualizar os testes estáticos para rejeitar current_setting('muuvi.moderation_rpc', true) e set_config('muuvi.moderation_rpc', ...), e verificar o contrato aprovado para posts ocultos/removidos. Esses testes não substituem testes reais de RLS no banco isolado.
+5. Manter todo teste de banco limitado ao Remix isolado, com contas e conteúdo fictícios, sem tabelas de ciclo menstrual.
+
+Nenhum SQL foi executado; esta auditoria foi somente de leitura do repositório.
