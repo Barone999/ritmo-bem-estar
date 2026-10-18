@@ -86,3 +86,21 @@ A tabela abaixo indica o objetivo, não os comandos SQL finais. Os privilégios 
 ## Próxima fase de validação
 
 Converter cada linha relevante em testes de integração usando somente contas e publicações fictícias no projeto isolado. Os testes Vitest estáticos atuais não substituem os testes reais de PostgreSQL/RLS/Storage. Nenhuma tabela de ciclo menstrual faz parte desses testes.
+
+## Auditoria estática adicional do frontend (18/10/2026)
+
+A leitura de `src/routes/_authenticated/comunidade.moderacao.tsx` identificou um requisito importante para o bootstrap:
+
+- A rota exige associação em `community_moderators` para liberar a tela, mesmo quando a conta também aparece em `community_admins`.
+- A seção de gestão da equipe só aparece para quem tem associação em `community_admins`.
+- Portanto, a conta administradora inicial precisa ter as duas associações (`community_admins` e `community_moderators`) ou o frontend deve ser alterado deliberadamente para tratar administradores como moderadores. A decisão deve ser explícita; não presumir que ser admin já libera a tela.
+- A interface lista UUIDs dos moderadores e pede o UUID para adicionar/remover. A RPC continua sendo a fronteira de autorização; esconder ou mostrar botões não protege o banco.
+- A tela lê denúncias pendentes, posts denunciados, posts ocultos/removidos e até 100 eventos recentes de histórico. As policies/RPCs precisam cobrir essas leituras para moderadores e impedir que usuários comuns consultem os mesmos dados.
+- O rascunho SQL existente permite a moderadores comentar/curtir posts ocultos ou removidos. Isso diverge da recomendação preliminar desta matriz. Não alterar essa regra silenciosamente: definir a política final e alinhar SQL, policies e testes.
+
+## Próxima sequência de trabalho
+
+1. Fechar as decisões de produto ainda pendentes (interações em posts ocultos, exclusão de comentário próprio e auditoria de alterações na equipe).
+2. Fazer uma captura somente leitura e atualizada dos grants, privilégios por coluna, nomes/expressões de todas as policies e policies de Storage no Remix isolado.
+3. Confirmar o fluxo de migração executado pelo Lovable Cloud/CI. O `package.json` não define scripts de migração, e o placeholder `drizzle/schema.ts` não é suficiente para provar o pipeline.
+4. Só então preparar uma nova proposta de migração e atualizar os testes estáticos para rejeitar GUC/`set_config`; ainda sem executar SQL.
