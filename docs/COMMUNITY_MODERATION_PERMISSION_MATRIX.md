@@ -25,7 +25,7 @@
 | Excluir comentário próprio | Confirmar fluxo/policy existente | Confirmar fluxo/policy existente | Confirmar fluxo/policy existente |
 | Criar curtida própria em post visível | Sim | Sim | Sim |
 | Remover curtida própria | Sim | Sim | Sim |
-| Comentar/curtir post oculto ou removido | Não | A política do produto deve decidir; por padrão, não necessário para moderação | A política do produto deve decidir; por padrão, não necessário para moderação |
+| Comentar/curtir post oculto ou removido | Não | Não | Não |
 | Criar denúncia própria em post visível | Sim | Sim | Sim |
 | Consultar denúncias | Não | Sim | Sim |
 | Alterar diretamente estado de revisão da denúncia | Não | Não; usar RPC | Não; usar RPC |
@@ -75,7 +75,7 @@ A tabela abaixo indica o objetivo, não os comandos SQL finais. Os privilégios 
 
 ## Questões pendentes antes do SQL final
 
-1. Confirmar se a comunidade permite que moderadores comentem/curtam conteúdo oculto durante a revisão. Padrão recomendado: não, salvo requisito claro.
+1. **Resolvido:** ninguém pode criar comentários nem curtidas em posts ocultos ou removidos, incluindo moderadores e administradores. A regra deve ser aplicada no banco, não apenas na interface.
 2. Confirmar se usuários podem editar ou excluir comentários próprios; a matriz não deve conceder operação que a UI não usa.
 3. Definir retenção e visibilidade dos eventos de gestão de moderadores.
 4. Definir se um administrador pode também ser moderador e como garantir que a conta inicial não perca acesso.
@@ -96,7 +96,7 @@ A leitura de `src/routes/_authenticated/comunidade.moderacao.tsx` identificou um
 - Portanto, a conta administradora inicial precisa ter as duas associações (`community_admins` e `community_moderators`) ou o frontend deve ser alterado deliberadamente para tratar administradores como moderadores. A decisão deve ser explícita; não presumir que ser admin já libera a tela.
 - A interface lista UUIDs dos moderadores e pede o UUID para adicionar/remover. A RPC continua sendo a fronteira de autorização; esconder ou mostrar botões não protege o banco.
 - A tela lê denúncias pendentes, posts denunciados, posts ocultos/removidos e até 100 eventos recentes de histórico. As policies/RPCs precisam cobrir essas leituras para moderadores e impedir que usuários comuns consultem os mesmos dados.
-- O rascunho SQL existente permite a moderadores comentar/curtir posts ocultos ou removidos. Isso diverge da recomendação preliminar desta matriz. Não alterar essa regra silenciosamente: definir a política final e alinhar SQL, policies e testes.
+- O rascunho SQL existente permite a moderadores comentar/curtir posts ocultos ou removidos. Isso diverge da decisão agora aprovada. A futura proposta deve retirar a exceção de papel nas policies de INSERT de comentários/curtidas: somente posts com `moderation_status = 'visible'` aceitam novas interações, para qualquer papel.
 
 ## Próxima sequência de trabalho
 
@@ -104,3 +104,17 @@ A leitura de `src/routes/_authenticated/comunidade.moderacao.tsx` identificou um
 2. Fazer uma captura somente leitura e atualizada dos grants, privilégios por coluna, nomes/expressões de todas as policies e policies de Storage no Remix isolado.
 3. Confirmar o fluxo de migração executado pelo Lovable Cloud/CI. O `package.json` não define scripts de migração, e o placeholder `drizzle/schema.ts` não é suficiente para provar o pipeline.
 4. Só então preparar uma nova proposta de migração e atualizar os testes estáticos para rejeitar GUC/`set_config`; ainda sem executar SQL.
+
+
+## Regra aprovada — bloqueio de novas interações (18/10/2026)
+
+A decisão de produto está fechada: posts com status `hidden` ou `removed` não aceitam novas inserções em `post_comments` nem em `post_likes`, inclusive por moderadores e administradores.
+
+Critérios técnicos para a futura migração/testes:
+
+- As policies de INSERT de comentários e curtidas devem exigir que o post relacionado tenha `moderation_status = 'visible'`; não deve existir exceção `OR is_moderator` ou `OR is_admin` nesse caminho.
+- A regra precisa resistir a chamadas diretas via PostgREST/API, não apenas botões desabilitados no frontend.
+- Leitura de conteúdo oculto para revisão continua restrita à equipe; essa permissão de leitura não implica permissão de interação.
+- A regra vale para `hidden` e `removed`; ao restaurar para `visible`, novas interações voltam a ser permitidas conforme as demais policies.
+- Curtidas e comentários existentes permanecem preservados. A decisão bloqueia novas inserções, não solicita exclusão física nem remoção dos dados históricos.
+- Os testes devem tentar inserir comentário e curtida como usuário comum, moderador e administrador em ambos os estados e esperar rejeição. Devem também confirmar que as mesmas operações são aceitas em um post visível e que a restauração não apaga histórico.
