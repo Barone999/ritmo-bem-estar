@@ -1,5 +1,6 @@
--- Muuvi community moderation.
--- This migration is committed to GitHub for review only; do not run against the live database until approved.
+-- Muuvi community moderation proposal.
+-- REVIEW ONLY: do not execute. The actual Lovable migration pipeline is not confirmed.
+-- This draft is not approved for production or test-database application.
 
 begin;
 
@@ -81,55 +82,10 @@ create index if not exists post_reports_review_status_created_idx
 create index if not exists posts_moderation_status_created_idx
   on public.posts (moderation_status, created_at desc);
 
--- Column-level REVOKE does not override a table-level UPDATE grant.
--- Protected fields may only change while the validated SECURITY DEFINER RPC is running.
--- PostgREST does not expose arbitrary SQL, so clients cannot set this transaction-local
--- marker directly; the RPC turns it off again before returning.
-create or replace function public.enforce_community_moderation_fields()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_rpc_context boolean := coalesce(current_setting('muuvi.moderation_rpc', true), '') = 'on';
-begin
-  if not v_rpc_context then
-    if tg_table_name = 'posts' then
-      if tg_op = 'INSERT' then
-        if new.moderation_status is distinct from 'visible'
-           or new.moderated_at is not null
-           or new.moderated_by is not null then
-          raise exception 'Campos de moderação só podem ser definidos pela equipe autorizada.'
-            using errcode = '42501';
-        end if;
-      elsif new.moderation_status is distinct from old.moderation_status
-         or new.moderated_at is distinct from old.moderated_at
-         or new.moderated_by is distinct from old.moderated_by then
-        raise exception 'Campos de moderação só podem ser alterados pela RPC de moderação.'
-          using errcode = '42501';
-      end if;
-    elsif tg_table_name = 'post_reports' then
-      if tg_op = 'INSERT' then
-        if new.review_status is distinct from 'pending'
-           or new.reviewed_at is not null
-           or new.reviewed_by is not null then
-          raise exception 'Campos de análise de denúncias só podem ser definidos pela equipe autorizada.'
-            using errcode = '42501';
-        end if;
-      elsif new.review_status is distinct from old.review_status
-         or new.reviewed_at is distinct from old.reviewed_at
-         or new.reviewed_by is distinct from old.reviewed_by then
-        raise exception 'A análise de denúncias só pode ser alterada pela RPC de moderação.'
-          using errcode = '42501';
-      end if;
-    end if;
-  end if;
-  return new;
-end;
-$$;
-
-revoke all on function public.enforce_community_moderation_fields() from public, anon, authenticated;
+-- Protected moderation fields are secured by database privileges, not a session marker.
+-- Client roles receive no UPDATE grant on posts or post_reports below. The validated
+-- SECURITY DEFINER RPCs perform protected updates as their trusted owner.
+-- Do not add a trigger that trusts a client-settable custom GUC as proof of authorization.
 
 -- Limit the author-name trigger to changes that actually need name resolution.
 -- This avoids unrelated moderation updates touching legacy posts with missing profiles.
@@ -137,16 +93,6 @@ drop trigger if exists posts_set_author_name on public.posts;
 create trigger posts_set_author_name
   before insert or update of user_id, author_name on public.posts
   for each row execute function public.set_community_author_name();
-
-drop trigger if exists enforce_posts_moderation_fields on public.posts;
-create trigger enforce_posts_moderation_fields
-  before insert or update on public.posts
-  for each row execute function public.enforce_community_moderation_fields();
-
-drop trigger if exists enforce_reports_moderation_fields on public.post_reports;
-create trigger enforce_reports_moderation_fields
-  before insert or update on public.post_reports
-  for each row execute function public.enforce_community_moderation_fields();
 
 -- Public community feed: visible posts only, unless the signed-in user is a moderator.
 drop policy if exists "read posts" on public.posts;
@@ -191,7 +137,8 @@ create policy "read likes"
     )
   );
 
--- Prevent new comments/likes on hidden or removed content through direct API calls.
+-- No role may add comments or likes unless the post is visible.
+-- Moderation review access does not grant permission to interact with hidden/removed posts.
 drop policy if exists "own comment ins" on public.post_comments;
 create policy "own comment ins"
   on public.post_comments for insert to authenticated
@@ -200,10 +147,7 @@ create policy "own comment ins"
     and exists (
       select 1 from public.posts p
       where p.id = post_comments.post_id
-        and (
-          p.moderation_status = 'visible'
-          or exists (select 1 from public.community_moderators m where m.user_id = auth.uid())
-        )
+        and p.moderation_status = 'visible'
     )
   );
 
@@ -215,10 +159,7 @@ create policy "own like ins"
     and exists (
       select 1 from public.posts p
       where p.id = post_likes.post_id
-        and (
-          p.moderation_status = 'visible'
-          or exists (select 1 from public.community_moderators m where m.user_id = auth.uid())
-        )
+        and p.moderation_status = 'visible'
     )
   );
 
@@ -289,8 +230,6 @@ begin
     else raise exception 'Ação de moderação inválida.';
   end case;
 
-  perform set_config('muuvi.moderation_rpc', 'on', true);
-
   if p_action <> 'dismiss_reports' then
     update public.posts
       set moderation_status = v_new_status,
@@ -321,7 +260,6 @@ begin
     set reports_affected = v_reports_affected
     where id = v_action_id;
 
-  perform set_config('muuvi.moderation_rpc', 'off', true);
   return v_post;
 end;
 $$;
