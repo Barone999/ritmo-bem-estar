@@ -30,6 +30,28 @@
 | AUTH-14 | Moderador | Ler histórico e denúncias | Permitido |
 | AUTH-15 | Moderador | Alterar status por RPC com motivo válido | Permitido e registrado no histórico |
 
+## Regra de interação em conteúdo oculto/removido
+
+Esta regra foi aprovada para todos os papéis, sem exceção: usuário comum, moderador e administrador não podem criar novos comentários ou curtidas em posts `hidden` ou `removed`.
+
+| Caso | Estado do post | Papel | Operação | Resultado esperado |
+| --- | --- | --- | --- | --- |
+| INT-01 | `visible` | Usuário comum | Inserir comentário próprio | Permitido conforme RLS e validação de autoria |
+| INT-02 | `visible` | Moderador | Inserir comentário próprio | Permitido conforme RLS e validação de autoria |
+| INT-03 | `visible` | Administrador | Inserir comentário próprio | Permitido conforme RLS e validação de autoria |
+| INT-04 | `visible` | Usuário comum/moderador/administrador | Inserir curtida própria | Permitido conforme RLS e validação de autoria |
+| INT-05 | `hidden` | Usuário comum | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-06 | `hidden` | Moderador | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-07 | `hidden` | Administrador | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-08 | `removed` | Usuário comum | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-09 | `removed` | Moderador | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-10 | `removed` | Administrador | Inserir comentário ou curtida | Rejeitado no banco |
+| INT-11 | `hidden`/ `removed` | Todos os papéis | Consultar conteúdo/histórico | Usuário comum não vê o post nem interações; equipe autorizada pode revisar conforme RLS |
+| INT-12 | Restaurado para `visible` | Todos os papéis | Inserir nova interação | Permitido de novo, conforme as policies de autoria |
+| INT-13 | `hidden`/ `removed` | Todos os papéis | Verificar comentários/curtidas anteriores | Registros existentes permanecem preservados |
+
+Os testes precisam chamar a API/banco diretamente com sessão de cada papel; testar apenas a UI não comprova a política. Para INT-05 a INT-10, verificar que nenhuma linha é criada. Nenhuma tabela de ciclo menstrual deve ser acessada ou modificada.
+
 ## Matriz de auditoria e reversibilidade
 
 1. Com duas denúncias pendentes numa publicação fictícia, o moderador executa `hide` com motivo válido.
@@ -43,6 +65,7 @@
 ## Critérios de aprovação
 
 - Todos os casos AUTH-01 a AUTH-15 produzem o resultado esperado.
+- Todos os casos INT-01 a INT-13 produzem o resultado esperado, incluindo bloqueio no banco para moderadores e administradores em posts ocultos/removidos.
 - Nenhum teste modifica tabelas de ciclo menstrual ou outros dados pessoais.
 - Nenhuma ação de moderação é possível sem a RPC autorizada.
 - Nenhuma alteração de status protegida contorna o histórico.
